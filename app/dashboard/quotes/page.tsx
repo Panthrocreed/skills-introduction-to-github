@@ -12,6 +12,7 @@ import {
   compactNumber,
   changeColor,
 } from '@/lib/format';
+import { RefreshButton } from '../refresh-button';
 
 export default function QuotesPage() {
   return (
@@ -24,22 +25,25 @@ export default function QuotesPage() {
           </p>
         </div>
 
-        <form action={addToWatchlist} className="flex gap-2">
-          <input
-            name="symbol"
-            type="text"
-            placeholder="Add symbol (e.g. TSLA)"
-            autoComplete="off"
-            maxLength={10}
-            className="bg-slate-800 border border-slate-700 text-white text-sm px-3 py-2 rounded-md focus:outline-none focus:border-blue-500 placeholder-slate-500"
-          />
-          <button
-            type="submit"
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
-          >
-            Add
-          </button>
-        </form>
+        <div className="flex items-center gap-2 flex-wrap">
+          <RefreshButton />
+          <form action={addToWatchlist} className="flex gap-2">
+            <input
+              name="symbol"
+              type="text"
+              placeholder="Add symbol (e.g. TSLA)"
+              autoComplete="off"
+              maxLength={10}
+              className="bg-slate-800 border border-slate-700 text-white text-sm px-3 py-2 rounded-md focus:outline-none focus:border-blue-500 placeholder-slate-500"
+            />
+            <button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
+            >
+              Add
+            </button>
+          </form>
+        </div>
       </div>
 
       <Suspense fallback={<QuotesSkeleton />}>

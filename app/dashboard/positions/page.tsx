@@ -1,15 +1,19 @@
 import { Suspense } from 'react';
 import { fetchPositions } from '@/app/actions/account';
 import { money, signedMoney, percent, changeColor } from '@/lib/format';
+import { RefreshButton } from '../refresh-button';
 
 export default function PositionsPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-white">Positions</h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Current holdings with day change and total P&amp;L
-        </p>
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">Positions</h2>
+          <p className="text-slate-400 text-sm mt-1">
+            Current holdings with day change and total P&amp;L
+          </p>
+        </div>
+        <RefreshButton />
       </div>
 
       <Suspense fallback={<PositionsSkeleton />}>
