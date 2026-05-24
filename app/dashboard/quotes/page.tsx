@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { fetchQuotes } from '@/app/actions/quotes';
 import {
   getWatchlist,
@@ -12,12 +13,7 @@ import {
   changeColor,
 } from '@/lib/format';
 
-export default async function QuotesPage() {
-  const symbols = await getWatchlist();
-  const { quotes, error } = await fetchQuotes(symbols);
-
-  const quotesBySymbol = new Map(quotes.map((q) => [q.symbol, q]));
-
+export default function QuotesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -46,95 +42,130 @@ export default async function QuotesPage() {
         </form>
       </div>
 
-      {error && (
-        <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg text-red-300">
-          <p className="font-semibold">Error loading quotes</p>
-          <p className="text-sm mt-1">{error}</p>
-        </div>
-      )}
+      <Suspense fallback={<QuotesSkeleton />}>
+        <QuotesGrid />
+      </Suspense>
+    </div>
+  );
+}
 
-      {symbols.length === 0 ? (
-        <div className="p-12 bg-slate-800 border border-slate-700 rounded-lg text-center">
-          <p className="text-slate-400">
-            Your watchlist is empty. Add a symbol above.
-          </p>
+async function QuotesGrid() {
+  const symbols = await getWatchlist();
+  const { quotes, error } = await fetchQuotes(symbols);
+  const quotesBySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-900/20 border border-red-700/50 rounded-lg text-red-300">
+        <p className="font-semibold">Error loading quotes</p>
+        <p className="text-sm mt-1">{error}</p>
+      </div>
+    );
+  }
+
+  if (symbols.length === 0) {
+    return (
+      <div className="p-12 bg-slate-800 border border-slate-700 rounded-lg text-center">
+        <p className="text-slate-400">
+          Your watchlist is empty. Add a symbol above.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {symbols.map((sym) => (
+        <QuoteCard key={sym} symbol={sym} quote={quotesBySymbol.get(sym)} />
+      ))}
+    </div>
+  );
+}
+
+function QuoteCard({
+  symbol,
+  quote,
+}: {
+  symbol: string;
+  quote: ReturnType<Map<string, import('@/lib/schwab-auth').SchwabQuote>['get']>;
+}) {
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-600 transition-colors">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <div className="text-white font-bold text-lg">{symbol}</div>
+          {quote?.description && (
+            <div className="text-xs text-slate-400 truncate max-w-[180px]">
+              {quote.description}
+            </div>
+          )}
         </div>
+        <form action={removeFromWatchlist}>
+          <input type="hidden" name="symbol" value={symbol} />
+          <button
+            type="submit"
+            aria-label={`Remove ${symbol}`}
+            className="text-slate-500 hover:text-red-400 transition-colors text-xs"
+          >
+            ✕
+          </button>
+        </form>
+      </div>
+
+      {quote ? (
+        <>
+          <div className="text-2xl font-bold text-white mb-1">
+            {money(quote.lastPrice)}
+          </div>
+          <div className={`text-sm font-medium ${changeColor(quote.netChange)}`}>
+            {signedMoney(quote.netChange)} ({percent(quote.netPercentChange)})
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400">
+            <div>
+              <span className="text-slate-500">Bid:</span>{' '}
+              <span className="text-slate-200">{money(quote.bid)}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Ask:</span>{' '}
+              <span className="text-slate-200">{money(quote.ask)}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">High:</span>{' '}
+              <span className="text-slate-200">{money(quote.high)}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Low:</span>{' '}
+              <span className="text-slate-200">{money(quote.low)}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Open:</span>{' '}
+              <span className="text-slate-200">{money(quote.open)}</span>
+            </div>
+            <div>
+              <span className="text-slate-500">Vol:</span>{' '}
+              <span className="text-slate-200">{compactNumber(quote.volume)}</span>
+            </div>
+          </div>
+        </>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {symbols.map((sym) => {
-            const q = quotesBySymbol.get(sym);
-            return (
-              <div
-                key={sym}
-                className="bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-600 transition-colors"
-              >
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <div className="text-white font-bold text-lg">{sym}</div>
-                    {q?.description && (
-                      <div className="text-xs text-slate-400 truncate max-w-[180px]">
-                        {q.description}
-                      </div>
-                    )}
-                  </div>
-                  <form action={removeFromWatchlist}>
-                    <input type="hidden" name="symbol" value={sym} />
-                    <button
-                      type="submit"
-                      aria-label={`Remove ${sym}`}
-                      className="text-slate-500 hover:text-red-400 transition-colors text-xs"
-                    >
-                      ✕
-                    </button>
-                  </form>
-                </div>
-
-                {q ? (
-                  <>
-                    <div className="text-2xl font-bold text-white mb-1">
-                      {money(q.lastPrice)}
-                    </div>
-                    <div className={`text-sm font-medium ${changeColor(q.netChange)}`}>
-                      {signedMoney(q.netChange)} ({percent(q.netPercentChange)})
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-400">
-                      <div>
-                        <span className="text-slate-500">Bid:</span>{' '}
-                        <span className="text-slate-200">{money(q.bid)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Ask:</span>{' '}
-                        <span className="text-slate-200">{money(q.ask)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">High:</span>{' '}
-                        <span className="text-slate-200">{money(q.high)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Low:</span>{' '}
-                        <span className="text-slate-200">{money(q.low)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Open:</span>{' '}
-                        <span className="text-slate-200">{money(q.open)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Vol:</span>{' '}
-                        <span className="text-slate-200">{compactNumber(q.volume)}</span>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-slate-500 text-sm italic py-2">
-                    No quote data
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div className="text-slate-500 text-sm italic py-2">
+          No quote data
         </div>
       )}
+    </div>
+  );
+}
+
+function QuotesSkeleton() {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-44 bg-slate-800/70 border border-slate-700 rounded-lg animate-pulse"
+        />
+      ))}
     </div>
   );
 }

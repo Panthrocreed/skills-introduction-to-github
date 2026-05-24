@@ -10,6 +10,15 @@
 // trader endpoints expect (Schwab does not accept raw account numbers).
 
 import 'server-only';
+import {
+  isMockMode,
+  mockTokenResponse,
+  mockAccounts,
+  mockAccountBalance,
+  mockPositions,
+  mockQuotes,
+  MOCK_AUTH_CODE,
+} from '@/lib/schwab-mock';
 
 const SCHWAB_OAUTH_BASE = 'https://api.schwabapi.com/v1/oauth';
 const SCHWAB_TRADER_BASE = 'https://api.schwabapi.com/trader/v1';
@@ -27,6 +36,14 @@ export interface SchwabTokenResponse {
 }
 
 export const getSchwabAuthUrl = (): string => {
+  if (isMockMode()) {
+    // Skip the round-trip to Schwab and go straight to the callback
+    const redirectUri =
+      process.env.NEXT_PUBLIC_SCHWAB_REDIRECT_URI ??
+      'http://localhost:3000/auth/callback';
+    return `${redirectUri}?code=${MOCK_AUTH_CODE}`;
+  }
+
   const clientId = process.env.SCHWAB_CLIENT_ID;
   const redirectUri = process.env.NEXT_PUBLIC_SCHWAB_REDIRECT_URI;
 
@@ -57,6 +74,8 @@ const basicAuthHeader = (): string => {
 export const exchangeCodeForToken = async (
   code: string
 ): Promise<SchwabTokenResponse> => {
+  if (isMockMode()) return mockTokenResponse();
+
   const redirectUri = process.env.NEXT_PUBLIC_SCHWAB_REDIRECT_URI;
   if (!redirectUri) {
     throw new Error('Missing NEXT_PUBLIC_SCHWAB_REDIRECT_URI');
@@ -86,6 +105,8 @@ export const exchangeCodeForToken = async (
 export const refreshAccessToken = async (
   refreshToken: string
 ): Promise<SchwabTokenResponse> => {
+  if (isMockMode()) return mockTokenResponse();
+
   const response = await fetch(`${SCHWAB_OAUTH_BASE}/token`, {
     method: 'POST',
     headers: {
@@ -169,6 +190,8 @@ export const getAccountNumbers = async (
 };
 
 export const getAccounts = async (accessToken: string): Promise<SchwabAccount[]> => {
+  if (isMockMode()) return mockAccounts();
+
   const [numbers, accountsRaw] = await Promise.all([
     getAccountNumbers(accessToken),
     fetch(`${SCHWAB_TRADER_BASE}/accounts`, {
@@ -196,6 +219,8 @@ export const getAccountBalance = async (
   accessToken: string,
   accountHash: string
 ): Promise<SchwabAccountBalance> => {
+  if (isMockMode()) return mockAccountBalance();
+
   const response = await fetch(`${SCHWAB_TRADER_BASE}/accounts/${accountHash}`, {
     headers: authHeaders(accessToken),
     cache: 'no-store',
@@ -257,6 +282,8 @@ export const getPositions = async (
   accessToken: string,
   accountHash: string
 ): Promise<SchwabPosition[]> => {
+  if (isMockMode()) return mockPositions();
+
   const response = await fetch(
     `${SCHWAB_TRADER_BASE}/accounts/${accountHash}?fields=positions`,
     {
@@ -331,6 +358,7 @@ export const getQuotes = async (
   symbols: string[]
 ): Promise<SchwabQuote[]> => {
   if (symbols.length === 0) return [];
+  if (isMockMode()) return mockQuotes(symbols);
 
   const params = new URLSearchParams({
     symbols: symbols.join(','),
