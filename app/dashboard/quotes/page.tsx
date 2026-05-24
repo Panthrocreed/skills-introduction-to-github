@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { fetchQuotes } from '@/app/actions/quotes';
 import {
   getWatchlist,
@@ -96,20 +97,25 @@ function QuoteCard({
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 hover:border-slate-600 transition-colors">
       <div className="flex items-start justify-between mb-2">
-        <div>
-          <div className="text-white font-bold text-lg">{symbol}</div>
+        <Link
+          href={`/dashboard/quotes/${encodeURIComponent(symbol)}`}
+          className="flex-1 min-w-0 group"
+        >
+          <div className="text-white font-bold text-lg group-hover:text-blue-400 transition-colors">
+            {symbol}
+          </div>
           {quote?.description && (
-            <div className="text-xs text-slate-400 truncate max-w-[180px]">
+            <div className="text-xs text-slate-400 truncate">
               {quote.description}
             </div>
           )}
-        </div>
+        </Link>
         <form action={removeFromWatchlist}>
           <input type="hidden" name="symbol" value={symbol} />
           <button
             type="submit"
             aria-label={`Remove ${symbol}`}
-            className="text-slate-500 hover:text-red-400 transition-colors text-xs"
+            className="text-slate-500 hover:text-red-400 transition-colors text-xs ml-2"
           >
             ✕
           </button>

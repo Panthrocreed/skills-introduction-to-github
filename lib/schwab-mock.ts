@@ -12,6 +12,8 @@ import type {
   SchwabAccountBalance,
   SchwabPosition,
   SchwabQuote,
+  SchwabCandle,
+  PriceHistoryParams,
 } from '@/lib/schwab-auth';
 
 export const MOCK_AUTH_CODE = 'mock-code';
@@ -173,6 +175,67 @@ const MOCK_QUOTES: Record<string, SchwabQuote> = {
     previousClose: 882.5,
   },
 };
+
+// Deterministic pseudo-random generator so a given symbol always produces
+// the same mock chart across renders.
+function hashSeed(symbol: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < symbol.length; i++) {
+    h ^= symbol.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function nextRandom(seed: number): [number, number] {
+  // mulberry32
+  let t = (seed + 0x6d2b79f5) | 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return [((t ^ (t >>> 14)) >>> 0) / 4294967296, t >>> 0];
+}
+
+export function mockPriceHistory(
+  symbol: string,
+  params: PriceHistoryParams = {}
+): SchwabCandle[] {
+  const upper = symbol.toUpperCase();
+  const base = MOCK_QUOTES[upper]?.previousClose ?? 100 + (upper.charCodeAt(0) % 50);
+  const count = (params.period ?? 10) * 24; // ~10 days of hourly candles by default
+  const stepMs = (params.frequency ?? 60) * 60 * 1000;
+  const startMs = Date.now() - count * stepMs;
+
+  let seed = hashSeed(upper);
+  let price = base * 0.95;
+  const candles: SchwabCandle[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const [r1, s1] = nextRandom(seed);
+    const [r2, s2] = nextRandom(s1);
+    seed = s2;
+
+    const drift = (r1 - 0.48) * (base * 0.01);
+    const range = r2 * (base * 0.005) + base * 0.001;
+
+    const open = price;
+    const close = Math.max(0.01, price + drift);
+    const high = Math.max(open, close) + range;
+    const low = Math.min(open, close) - range;
+
+    candles.push({
+      datetime: startMs + i * stepMs,
+      open,
+      high,
+      low,
+      close,
+      volume: Math.round(100_000 + r1 * 900_000),
+    });
+
+    price = close;
+  }
+
+  return candles;
+}
 
 export function mockQuotes(symbols: string[]): SchwabQuote[] {
   return symbols

@@ -17,6 +17,7 @@ import {
   mockAccountBalance,
   mockPositions,
   mockQuotes,
+  mockPriceHistory,
   MOCK_AUTH_CODE,
 } from '@/lib/schwab-mock';
 
@@ -352,6 +353,61 @@ export interface SchwabQuote {
   open: number;
   previousClose: number;
 }
+
+// ---------- Price History ----------
+
+export interface SchwabCandle {
+  datetime: number; // ms epoch
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface RawPriceHistoryResponse {
+  candles?: SchwabCandle[];
+  symbol?: string;
+  empty?: boolean;
+}
+
+export interface PriceHistoryParams {
+  periodType?: 'day' | 'month' | 'year' | 'ytd';
+  period?: number;
+  frequencyType?: 'minute' | 'daily' | 'weekly' | 'monthly';
+  frequency?: number;
+}
+
+export const getPriceHistory = async (
+  accessToken: string,
+  symbol: string,
+  params: PriceHistoryParams = {}
+): Promise<SchwabCandle[]> => {
+  if (isMockMode()) return mockPriceHistory(symbol, params);
+
+  const query = new URLSearchParams({
+    symbol,
+    periodType: params.periodType ?? 'day',
+    period: String(params.period ?? 10),
+    frequencyType: params.frequencyType ?? 'minute',
+    frequency: String(params.frequency ?? 5),
+  });
+
+  const response = await fetch(
+    `${SCHWAB_MARKETDATA_BASE}/pricehistory?${query.toString()}`,
+    {
+      headers: authHeaders(accessToken),
+      cache: 'no-store',
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch price history: ${response.statusText}`);
+  }
+
+  const data: RawPriceHistoryResponse = await response.json();
+  return data.candles ?? [];
+};
 
 export const getQuotes = async (
   accessToken: string,

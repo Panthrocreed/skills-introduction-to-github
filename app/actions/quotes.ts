@@ -1,11 +1,44 @@
 'use server';
 
-import { getQuotes, type SchwabQuote } from '@/lib/schwab-auth';
+import {
+  getQuotes,
+  getPriceHistory,
+  type SchwabQuote,
+  type SchwabCandle,
+  type PriceHistoryParams,
+} from '@/lib/schwab-auth';
 import { getValidAccessToken } from '@/lib/schwab-session';
 
 export interface QuotesResult {
   quotes: SchwabQuote[];
   error: string | null;
+}
+
+export interface PriceHistoryResult {
+  candles: SchwabCandle[];
+  error: string | null;
+}
+
+export async function fetchPriceHistory(
+  symbol: string,
+  params: PriceHistoryParams = {}
+): Promise<PriceHistoryResult> {
+  try {
+    const cleaned = symbol.trim().toUpperCase();
+    if (!cleaned) return { candles: [], error: 'Symbol required' };
+
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return { candles: [], error: 'Not authenticated' };
+
+    const candles = await getPriceHistory(accessToken, cleaned, params);
+    return { candles, error: null };
+  } catch (err) {
+    console.error('fetchPriceHistory failed:', err);
+    return {
+      candles: [],
+      error: err instanceof Error ? err.message : 'Failed to fetch price history',
+    };
+  }
 }
 
 export async function fetchQuotes(symbols: string[]): Promise<QuotesResult> {
