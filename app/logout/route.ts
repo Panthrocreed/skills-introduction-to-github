@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server';
+import { clearSchwabTokens } from '@/lib/schwab-session';
 
-export function GET() {
-  const response = NextResponse.redirect(new URL('/login', process.env.NEXTAUTH_URL || 'http://localhost:3000'));
-
-  // Clear auth cookies
-  response.cookies.delete('schwab_access_token');
-  response.cookies.delete('schwab_refresh_token');
-
-  return response;
+export async function GET(request: Request) {
+  await clearSchwabTokens();
+  return NextResponse.redirect(new URL('/login', request.url));
 }

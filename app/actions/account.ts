@@ -1,37 +1,75 @@
 'use server';
 
-import { cookies } from 'next/headers';
-import { getAccounts, getAccountBalance } from '@/lib/schwab-auth';
+import {
+  getAccounts,
+  getAccountBalance,
+  getPositions,
+  type SchwabAccount,
+  type SchwabAccountBalance,
+  type SchwabPosition,
+} from '@/lib/schwab-auth';
+import { getValidAccessToken } from '@/lib/schwab-session';
 
-export async function fetchAccountData() {
+export interface AccountDataResult {
+  account: SchwabAccount | null;
+  balance: SchwabAccountBalance | null;
+  error: string | null;
+}
+
+export async function fetchAccountData(): Promise<AccountDataResult> {
   try {
-    const cookieStore = await cookies();
-    const accessToken = cookieStore.get('schwab_access_token')?.value;
-
+    const accessToken = await getValidAccessToken();
     if (!accessToken) {
-      return { error: 'No access token found. Please log in.' };
+      return { account: null, balance: null, error: 'Not authenticated' };
     }
 
-    // Fetch accounts
     const accounts = await getAccounts(accessToken);
-
-    if (!accounts || accounts.length === 0) {
-      return { error: 'No accounts found' };
+    if (accounts.length === 0) {
+      return { account: null, balance: null, error: 'No accounts found' };
     }
 
-    // For MVP, just get the first account's balance
-    const primaryAccount = accounts[0];
-    const balance = await getAccountBalance(accessToken, primaryAccount.accountNumber);
+    const primary = accounts[0];
+    const balance = await getAccountBalance(accessToken, primary.accountHash);
 
+    return { account: primary, balance, error: null };
+  } catch (err) {
+    console.error('fetchAccountData failed:', err);
     return {
-      account: primaryAccount,
-      balance,
-      error: null,
+      account: null,
+      balance: null,
+      error: err instanceof Error ? err.message : 'Failed to fetch account data',
     };
-  } catch (error) {
-    console.error('Failed to fetch account data:', error);
+  }
+}
+
+export interface PositionsResult {
+  account: SchwabAccount | null;
+  positions: SchwabPosition[];
+  error: string | null;
+}
+
+export async function fetchPositions(): Promise<PositionsResult> {
+  try {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) {
+      return { account: null, positions: [], error: 'Not authenticated' };
+    }
+
+    const accounts = await getAccounts(accessToken);
+    if (accounts.length === 0) {
+      return { account: null, positions: [], error: 'No accounts found' };
+    }
+
+    const primary = accounts[0];
+    const positions = await getPositions(accessToken, primary.accountHash);
+
+    return { account: primary, positions, error: null };
+  } catch (err) {
+    console.error('fetchPositions failed:', err);
     return {
-      error: error instanceof Error ? error.message : 'Failed to fetch account data',
+      account: null,
+      positions: [],
+      error: err instanceof Error ? err.message : 'Failed to fetch positions',
     };
   }
 }

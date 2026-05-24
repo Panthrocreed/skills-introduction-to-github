@@ -1,6 +1,32 @@
-// Schwab OAuth2 utilities
+// Schwab OAuth2 and API utilities
+//
+// Schwab API base URLs:
+//   - OAuth:       https://api.schwabapi.com/v1/oauth
+//   - Trader API:  https://api.schwabapi.com/trader/v1
+//   - Market Data: https://api.schwabapi.com/marketdata/v1
+//
+// Account number flow: GET /trader/v1/accounts/accountNumbers returns
+// pairs of { accountNumber, hashValue }. The hashValue is what subsequent
+// trader endpoints expect (Schwab does not accept raw account numbers).
 
-export const getSchwabAuthUrl = () => {
+import 'server-only';
+
+const SCHWAB_OAUTH_BASE = 'https://api.schwabapi.com/v1/oauth';
+const SCHWAB_TRADER_BASE = 'https://api.schwabapi.com/trader/v1';
+const SCHWAB_MARKETDATA_BASE = 'https://api.schwabapi.com/marketdata/v1';
+
+// ---------- OAuth ----------
+
+export interface SchwabTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number; // seconds (typically 1800 = 30 min)
+  scope?: string;
+  id_token?: string;
+}
+
+export const getSchwabAuthUrl = (): string => {
   const clientId = process.env.SCHWAB_CLIENT_ID;
   const redirectUri = process.env.NEXT_PUBLIC_SCHWAB_REDIRECT_URI;
 
@@ -12,55 +38,80 @@ export const getSchwabAuthUrl = () => {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'read write',
+    scope: 'readonly',
   });
 
-  return `https://api.schwabapi.com/v1/oauth/authorize?${params.toString()}`;
+  return `${SCHWAB_OAUTH_BASE}/authorize?${params.toString()}`;
 };
 
-export interface SchwabTokenResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  expires_in: number;
-}
+const basicAuthHeader = (): string => {
+  const clientId = process.env.SCHWAB_CLIENT_ID;
+  const clientSecret = process.env.SCHWAB_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('Missing Schwab OAuth credentials');
+  }
+  const encoded = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  return `Basic ${encoded}`;
+};
 
 export const exchangeCodeForToken = async (
   code: string
 ): Promise<SchwabTokenResponse> => {
-  const clientId = process.env.SCHWAB_CLIENT_ID;
-  const clientSecret = process.env.SCHWAB_CLIENT_SECRET;
   const redirectUri = process.env.NEXT_PUBLIC_SCHWAB_REDIRECT_URI;
-
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error('Missing Schwab OAuth credentials');
+  if (!redirectUri) {
+    throw new Error('Missing NEXT_PUBLIC_SCHWAB_REDIRECT_URI');
   }
 
-  const response = await fetch('https://api.schwabapi.com/v1/oauth/token', {
+  const response = await fetch(`${SCHWAB_OAUTH_BASE}/token`, {
     method: 'POST',
     headers: {
+      Authorization: basicAuthHeader(),
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
-      client_id: clientId,
-      client_secret: clientSecret,
     }).toString(),
   });
 
   if (!response.ok) {
-    throw new Error(`Schwab token exchange failed: ${response.statusText}`);
+    const text = await response.text().catch(() => '');
+    throw new Error(`Schwab token exchange failed (${response.status}): ${text}`);
   }
 
   return response.json();
 };
 
+export const refreshAccessToken = async (
+  refreshToken: string
+): Promise<SchwabTokenResponse> => {
+  const response = await fetch(`${SCHWAB_OAUTH_BASE}/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: basicAuthHeader(),
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }).toString(),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Schwab token refresh failed (${response.status}): ${text}`);
+  }
+
+  return response.json();
+};
+
+// ---------- Accounts ----------
+
 export interface SchwabAccount {
   accountNumber: string;
-  accountType: string;
-  accountStatus: string;
+  accountHash: string;
+  accountType?: string;
 }
 
 export interface SchwabAccountBalance {
@@ -70,37 +121,255 @@ export interface SchwabAccountBalance {
   cashAvailable: number;
 }
 
-export const getAccounts = async (accessToken: string): Promise<SchwabAccount[]> => {
-  const response = await fetch('https://api.schwabapi.com/v1/accounts', {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
+interface RawAccountNumberPair {
+  accountNumber: string;
+  hashValue: string;
+}
+
+interface RawSecuritiesAccount {
+  type?: string;
+  accountNumber?: string;
+  currentBalances?: {
+    liquidationValue?: number;
+    cashBalance?: number;
+    buyingPower?: number;
+    cashAvailableForTrading?: number;
+    cashAvailableForWithdrawal?: number;
+    equity?: number;
+  };
+  positions?: RawPosition[];
+}
+
+interface RawAccountResponse {
+  securitiesAccount?: RawSecuritiesAccount;
+  aggregatedBalance?: {
+    currentLiquidationValue?: number;
+    liquidationValue?: number;
+  };
+}
+
+const authHeaders = (accessToken: string): HeadersInit => ({
+  Authorization: `Bearer ${accessToken}`,
+  Accept: 'application/json',
+});
+
+export const getAccountNumbers = async (
+  accessToken: string
+): Promise<RawAccountNumberPair[]> => {
+  const response = await fetch(`${SCHWAB_TRADER_BASE}/accounts/accountNumbers`, {
+    headers: authHeaders(accessToken),
+    cache: 'no-store',
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch accounts: ${response.statusText}`);
+    throw new Error(`Failed to fetch account numbers: ${response.statusText}`);
   }
 
-  const data = await response.json();
-  return data.accounts || [];
+  return response.json();
+};
+
+export const getAccounts = async (accessToken: string): Promise<SchwabAccount[]> => {
+  const [numbers, accountsRaw] = await Promise.all([
+    getAccountNumbers(accessToken),
+    fetch(`${SCHWAB_TRADER_BASE}/accounts`, {
+      headers: authHeaders(accessToken),
+      cache: 'no-store',
+    }).then(async (r): Promise<RawAccountResponse[]> => {
+      if (!r.ok) throw new Error(`Failed to fetch accounts: ${r.statusText}`);
+      return r.json();
+    }),
+  ]);
+
+  const hashByNumber = new Map(numbers.map((n) => [n.accountNumber, n.hashValue]));
+
+  return accountsRaw
+    .map((entry) => entry.securitiesAccount)
+    .filter((sa): sa is RawSecuritiesAccount => Boolean(sa?.accountNumber))
+    .map((sa) => ({
+      accountNumber: sa.accountNumber!,
+      accountHash: hashByNumber.get(sa.accountNumber!) ?? sa.accountNumber!,
+      accountType: sa.type,
+    }));
 };
 
 export const getAccountBalance = async (
   accessToken: string,
   accountHash: string
 ): Promise<SchwabAccountBalance> => {
-  const response = await fetch(
-    `https://api.schwabapi.com/v1/accounts/${accountHash}/balances`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
+  const response = await fetch(`${SCHWAB_TRADER_BASE}/accounts/${accountHash}`, {
+    headers: authHeaders(accessToken),
+    cache: 'no-store',
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch account balance: ${response.statusText}`);
   }
 
-  return response.json();
+  const data: RawAccountResponse = await response.json();
+  const securities = data.securitiesAccount ?? {};
+  const balances = securities.currentBalances ?? {};
+
+  return {
+    accountNumber: securities.accountNumber ?? '',
+    accountBalance:
+      data.aggregatedBalance?.currentLiquidationValue ??
+      balances.liquidationValue ??
+      balances.equity ??
+      balances.cashBalance ??
+      0,
+    buyingPower: balances.buyingPower ?? 0,
+    cashAvailable:
+      balances.cashAvailableForTrading ?? balances.cashBalance ?? 0,
+  };
+};
+
+// ---------- Positions ----------
+
+interface RawPosition {
+  shortQuantity?: number;
+  longQuantity?: number;
+  averagePrice?: number;
+  marketValue?: number;
+  currentDayProfitLoss?: number;
+  currentDayProfitLossPercentage?: number;
+  longOpenProfitLoss?: number;
+  instrument?: {
+    symbol?: string;
+    description?: string;
+    assetType?: string;
+    cusip?: string;
+  };
+}
+
+export interface SchwabPosition {
+  symbol: string;
+  description: string;
+  assetType: string;
+  quantity: number;
+  averagePrice: number;
+  marketValue: number;
+  dayChange: number;
+  dayChangePercent: number;
+  totalGainLoss: number;
+}
+
+export const getPositions = async (
+  accessToken: string,
+  accountHash: string
+): Promise<SchwabPosition[]> => {
+  const response = await fetch(
+    `${SCHWAB_TRADER_BASE}/accounts/${accountHash}?fields=positions`,
+    {
+      headers: authHeaders(accessToken),
+      cache: 'no-store',
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch positions: ${response.statusText}`);
+  }
+
+  const data: RawAccountResponse = await response.json();
+  const raw = data.securitiesAccount?.positions ?? [];
+
+  return raw
+    .filter((p) => p.instrument?.symbol)
+    .map((p) => {
+      const quantity = (p.longQuantity ?? 0) - (p.shortQuantity ?? 0);
+      return {
+        symbol: p.instrument!.symbol!,
+        description: p.instrument!.description ?? '',
+        assetType: p.instrument!.assetType ?? 'UNKNOWN',
+        quantity,
+        averagePrice: p.averagePrice ?? 0,
+        marketValue: p.marketValue ?? 0,
+        dayChange: p.currentDayProfitLoss ?? 0,
+        dayChangePercent: p.currentDayProfitLossPercentage ?? 0,
+        totalGainLoss: p.longOpenProfitLoss ?? 0,
+      };
+    });
+};
+
+// ---------- Market Data ----------
+
+interface RawQuoteEntry {
+  symbol?: string;
+  quote?: {
+    lastPrice?: number;
+    bidPrice?: number;
+    askPrice?: number;
+    netChange?: number;
+    netPercentChange?: number;
+    totalVolume?: number;
+    highPrice?: number;
+    lowPrice?: number;
+    openPrice?: number;
+    closePrice?: number;
+  };
+  reference?: {
+    description?: string;
+  };
+}
+
+export interface SchwabQuote {
+  symbol: string;
+  description: string;
+  lastPrice: number;
+  bid: number;
+  ask: number;
+  netChange: number;
+  netPercentChange: number;
+  volume: number;
+  high: number;
+  low: number;
+  open: number;
+  previousClose: number;
+}
+
+export const getQuotes = async (
+  accessToken: string,
+  symbols: string[]
+): Promise<SchwabQuote[]> => {
+  if (symbols.length === 0) return [];
+
+  const params = new URLSearchParams({
+    symbols: symbols.join(','),
+    fields: 'quote,reference',
+  });
+
+  const response = await fetch(
+    `${SCHWAB_MARKETDATA_BASE}/quotes?${params.toString()}`,
+    {
+      headers: authHeaders(accessToken),
+      cache: 'no-store',
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch quotes: ${response.statusText}`);
+  }
+
+  const data: Record<string, RawQuoteEntry> = await response.json();
+
+  return symbols
+    .map((sym) => {
+      const entry = data[sym];
+      if (!entry) return null;
+      const q = entry.quote ?? {};
+      return {
+        symbol: entry.symbol ?? sym,
+        description: entry.reference?.description ?? '',
+        lastPrice: q.lastPrice ?? 0,
+        bid: q.bidPrice ?? 0,
+        ask: q.askPrice ?? 0,
+        netChange: q.netChange ?? 0,
+        netPercentChange: q.netPercentChange ?? 0,
+        volume: q.totalVolume ?? 0,
+        high: q.highPrice ?? 0,
+        low: q.lowPrice ?? 0,
+        open: q.openPrice ?? 0,
+        previousClose: q.closePrice ?? 0,
+      };
+    })
+    .filter((q): q is SchwabQuote => q !== null);
 };
