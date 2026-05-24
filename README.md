@@ -1,75 +1,114 @@
-<header>
+# Nova Fox OS
 
-<!--
-  <<< Author notes: Course header >>>
-  Include a 1280×640 image, course title in sentence case, and a concise description in emphasis.
-  In your repository settings: enable template repository, add your 1280×640 social image, auto delete head branches.
-  Add your open source license, GitHub uses MIT license.
--->
+A live financial trading dashboard / "operating system" for managing brokerage activity. Connect your Schwab account via OAuth2 to access real-time portfolio insights and market data in a sleek, cockpit-inspired interface.
 
-# Introduction to GitHub
+## Features (MVP)
 
-_Get started using GitHub in less than an hour._
+- **Schwab OAuth2 Authentication**: Secure, token-based login via Schwab API
+- **Account Summary**: Real-time balance, buying power, and cash available
+- **Dashboard Interface**: Dark, cockpit-inspired UI with live data panels
+- **Secure Token Management**: Tokens stored in httpOnly cookies, never exposed to client
+- **Logout**: Clean session termination with cookie cleanup
 
-</header>
+## Tech Stack
 
-<!--
-  <<< Author notes: Step 1 >>>
-  Choose 3-5 steps for your course.
-  The first step is always the hardest, so pick something easy!
-  Link to docs.github.com for further explanations.
-  Encourage users to open new tabs for steps!
--->
+- **Next.js 15** (App Router) + TypeScript
+- **Tailwind CSS** for styling
+- **Schwab API** via OAuth2
+- **Server Actions** for secure token handling
+- **Vercel** (deployment-ready)
 
-## Step 1: Create a branch
+## Getting Started
 
-_Welcome to "Introduction to GitHub"! :wave:_
+### Prerequisites
 
-**What is GitHub?**: GitHub is a collaboration platform that uses _[Git](https://docs.github.com/get-started/quickstart/github-glossary#git)_ for versioning. GitHub is a popular place to share and contribute to [open-source](https://docs.github.com/get-started/quickstart/github-glossary#open-source) software.
-<br>:tv: [Video: What is GitHub?](https://www.youtube.com/watch?v=pBy1zgt0XPc)
+1. **Schwab Developer Account**: Register at https://developer.schwab.com
+2. **OAuth2 Credentials**:
+   - `SCHWAB_CLIENT_ID`
+   - `SCHWAB_CLIENT_SECRET`
+   - `NEXT_PUBLIC_SCHWAB_REDIRECT_URI`
 
-**What is a repository?**: A _[repository](https://docs.github.com/get-started/quickstart/github-glossary#repository)_ is a project containing files and folders. A repository tracks versions of files and folders. For more information, see "[About repositories](https://docs.github.com/en/repositories/creating-and-managing-repositories/about-repositories)" from GitHub Docs.
+### Local Setup
 
-**What is a branch?**: A _[branch](https://docs.github.com/en/get-started/quickstart/github-glossary#branch)_ is a parallel version of your repository. By default, your repository has one branch named `main` and it is considered to be the definitive branch. Creating additional branches allows you to copy the `main` branch of your repository and safely make any changes without disrupting the main project. Many people use branches to work on specific features without affecting any other parts of the project.
+```bash
+# Install dependencies
+npm install
 
-Branches allow you to separate your work from the `main` branch. In other words, everyone's work is safe while you contribute. For more information, see "[About branches](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-branches)".
+# Copy environment template
+cp .env.example .env.local
 
-**What is a profile README?**: A _[profile README](https://docs.github.com/account-and-profile/setting-up-and-managing-your-github-profile/customizing-your-profile/managing-your-profile-readme)_ is essentially an "About me" section on your GitHub profile where you can share information about yourself with the community on GitHub.com. GitHub shows your profile README at the top of your profile page. For more information, see "[Managing your profile README](https://docs.github.com/en/account-and-profile/setting-up-and-managing-your-github-profile/customizing-your-profile/managing-your-profile-readme)".
+# Add your Schwab credentials to .env.local
+# SCHWAB_CLIENT_ID=your_client_id
+# SCHWAB_CLIENT_SECRET=your_client_secret
+# NEXT_PUBLIC_SCHWAB_REDIRECT_URI=http://localhost:3000/auth/callback
 
-![profile-readme-example](/images/profile-readme-example.png)
+# Run dev server
+npm run dev
+```
 
-### :keyboard: Activity: Your first branch
+Open [http://localhost:3000](http://localhost:3000) and click "Connect Schwab Account".
 
-1. Open a new browser tab and navigate to your newly made repository. Then, work on the steps in your second tab while you read the instructions in this tab.
-2. Navigate to the **< > Code** tab in the header menu of your repository.
+### Deployment to Vercel
 
-   ![code-tab](/images/code-tab.png)
+1. Push code to GitHub
+2. Connect repository to Vercel
+3. Add environment variables in Vercel settings:
+   - `SCHWAB_CLIENT_ID`
+   - `SCHWAB_CLIENT_SECRET`
+   - `NEXT_PUBLIC_SCHWAB_REDIRECT_URI=https://your-domain.com/auth/callback`
+4. Deploy
 
-3. Click on the **main** branch drop-down.
+Update your Schwab app settings to use the production redirect URI.
 
-   ![main-branch-dropdown](/images/main-branch-dropdown.png)
+## Project Structure
 
-4. In the field, name your branch `my-first-branch`. In this case, the name must be `my-first-branch` to trigger the course workflow.
-5. Click **Create branch: my-first-branch** to create your branch.
+```
+app/
+├── page.tsx                 # Root redirect (auth → dashboard or login)
+├── login/
+│   └── page.tsx            # Login page with Schwab OAuth button
+├── dashboard/
+│   └── page.tsx            # Main dashboard (protected)
+├── auth/
+│   └── callback/
+│       └── route.ts        # OAuth callback handler
+├── logout/
+│   └── route.ts            # Logout / cookie cleanup
+├── actions/
+│   └── account.ts          # Server action for account data fetch
+└── layout.tsx              # Global layout
 
-   ![create-branch-button](/images/create-branch-button.png)
+lib/
+└── schwab-auth.ts          # Schwab API utilities & OAuth flows
+```
 
-   The branch will automatically switch to the one you have just created.
-   The **main** branch drop-down bar will reflect your new branch and display the new branch name.
+## How It Works
 
-6. Wait about 20 seconds then refresh this page (the one you're following instructions from). [GitHub Actions](https://docs.github.com/en/actions) will automatically update to the next step.
+1. **User clicks "Connect Schwab Account"** → redirects to Schwab OAuth login
+2. **Schwab redirects back** to `/auth/callback?code=XXX`
+3. **Callback route exchanges code for tokens** → stores in httpOnly cookies
+4. **User redirected to dashboard** → server action fetches account data
+5. **Dashboard renders with account summary** (balance, buying power, cash)
+6. **Click logout** → clears cookies, redirects to login
 
-<footer>
+## Next Steps (Phase 2)
 
-<!--
-  <<< Author notes: Footer >>>
-  Add a link to get support, GitHub status page, code of conduct, license link.
--->
+- [ ] Positions list with real-time P&L
+- [ ] Live market data / watchlist with WebSocket
+- [ ] Order placement UI
+- [ ] Trade history / execution panel
+- [ ] Secure token refresh flow (auto-renew before expiry)
+- [ ] Database storage for user sessions (instead of cookies only)
+- [ ] Multi-account support
+- [ ] Advanced charting / candlestick data
 
----
+## Notes
 
-Get help: [Post in our discussion board](https://github.com/orgs/skills/discussions/categories/introduction-to-github) &bull; [Review the GitHub status page](https://www.githubstatus.com/)
+- **Secrets**: Never commit `.env.local`. Use Vercel secrets for production.
+- **Token Refresh**: Currently tokens expire based on Schwab's `expires_in`. TODO: implement auto-refresh before expiry.
+- **Rate Limits**: Schwab API has rate limits. Monitor and add backoff logic if needed.
+- **Error Handling**: Basic error states implemented; enhance as needed.
 
-&copy; 2024 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
+## License
 
-</footer>
+MIT
