@@ -11,7 +11,11 @@ export function DashNavLink({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const active = pathname === href;
+  // /dashboard matches only exactly; deeper hrefs also match their nested routes
+  const active =
+    href === '/dashboard'
+      ? pathname === href
+      : pathname === href || pathname.startsWith(href + '/');
 
   return (
     <Link

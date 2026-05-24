@@ -13,6 +13,7 @@ import type {
   SchwabPosition,
   SchwabQuote,
   SchwabCandle,
+  SchwabOrder,
   PriceHistoryParams,
 } from '@/lib/schwab-auth';
 
@@ -235,6 +236,61 @@ export function mockPriceHistory(
   }
 
   return candles;
+}
+
+export function mockOrders(): SchwabOrder[] {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  return [
+    {
+      orderId: '1000000001',
+      symbol: 'AAPL',
+      instruction: 'BUY',
+      orderType: 'LIMIT',
+      status: 'FILLED',
+      quantity: 10,
+      filledQuantity: 10,
+      price: 234.5,
+      enteredTime: new Date(now - 2 * day).toISOString(),
+      closeTime: new Date(now - 2 * day + 30_000).toISOString(),
+    },
+    {
+      orderId: '1000000002',
+      symbol: 'NVDA',
+      instruction: 'SELL',
+      orderType: 'MARKET',
+      status: 'FILLED',
+      quantity: 5,
+      filledQuantity: 5,
+      price: null,
+      enteredTime: new Date(now - 1 * day).toISOString(),
+      closeTime: new Date(now - 1 * day + 15_000).toISOString(),
+    },
+    {
+      orderId: '1000000003',
+      symbol: 'MSFT',
+      instruction: 'BUY',
+      orderType: 'LIMIT',
+      status: 'WORKING',
+      quantity: 20,
+      filledQuantity: 0,
+      price: 440.0,
+      enteredTime: new Date(now - 3 * 60 * 60 * 1000).toISOString(),
+      closeTime: null,
+    },
+    {
+      orderId: '1000000004',
+      symbol: 'TSLA',
+      instruction: 'BUY',
+      orderType: 'STOP',
+      status: 'CANCELED',
+      quantity: 8,
+      filledQuantity: 0,
+      price: 200.0,
+      enteredTime: new Date(now - 4 * day).toISOString(),
+      closeTime: new Date(now - 4 * day + 60_000).toISOString(),
+    },
+  ];
 }
 
 export function mockQuotes(symbols: string[]): SchwabQuote[] {

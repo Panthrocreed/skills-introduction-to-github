@@ -18,6 +18,7 @@ import {
   mockPositions,
   mockQuotes,
   mockPriceHistory,
+  mockOrders,
   MOCK_AUTH_CODE,
 } from '@/lib/schwab-mock';
 
@@ -316,6 +317,106 @@ export const getPositions = async (
         totalGainLoss: p.longOpenProfitLoss ?? 0,
       };
     });
+};
+
+// ---------- Orders ----------
+
+export type OrderStatus =
+  | 'AWAITING_PARENT_ORDER'
+  | 'AWAITING_CONDITION'
+  | 'AWAITING_STOP_CONDITION'
+  | 'AWAITING_MANUAL_REVIEW'
+  | 'ACCEPTED'
+  | 'AWAITING_UR_OUT'
+  | 'PENDING_ACTIVATION'
+  | 'QUEUED'
+  | 'WORKING'
+  | 'REJECTED'
+  | 'PENDING_CANCEL'
+  | 'CANCELED'
+  | 'PENDING_REPLACE'
+  | 'REPLACED'
+  | 'FILLED'
+  | 'EXPIRED'
+  | 'NEW';
+
+export interface SchwabOrder {
+  orderId: string;
+  symbol: string;
+  instruction: 'BUY' | 'SELL' | 'BUY_TO_OPEN' | 'SELL_TO_CLOSE' | string;
+  orderType: string;
+  status: OrderStatus | string;
+  quantity: number;
+  filledQuantity: number;
+  price: number | null;
+  enteredTime: string;
+  closeTime: string | null;
+}
+
+interface RawOrder {
+  orderId?: number | string;
+  status?: string;
+  orderType?: string;
+  quantity?: number;
+  filledQuantity?: number;
+  price?: number;
+  enteredTime?: string;
+  closeTime?: string;
+  orderLegCollection?: Array<{
+    instruction?: string;
+    instrument?: { symbol?: string };
+  }>;
+}
+
+export interface OrdersQuery {
+  fromEnteredTime?: string; // ISO
+  toEnteredTime?: string; // ISO
+  maxResults?: number;
+  status?: OrderStatus;
+}
+
+export const getOrders = async (
+  accessToken: string,
+  accountHash: string,
+  query: OrdersQuery = {}
+): Promise<SchwabOrder[]> => {
+  if (isMockMode()) return mockOrders();
+
+  const params = new URLSearchParams();
+  if (query.fromEnteredTime) params.set('fromEnteredTime', query.fromEnteredTime);
+  if (query.toEnteredTime) params.set('toEnteredTime', query.toEnteredTime);
+  if (query.maxResults) params.set('maxResults', String(query.maxResults));
+  if (query.status) params.set('status', query.status);
+
+  const url = `${SCHWAB_TRADER_BASE}/accounts/${accountHash}/orders${
+    params.toString() ? '?' + params.toString() : ''
+  }`;
+
+  const response = await fetch(url, {
+    headers: authHeaders(accessToken),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch orders: ${response.statusText}`);
+  }
+
+  const data: RawOrder[] = await response.json();
+  return data.map((o) => {
+    const leg = o.orderLegCollection?.[0];
+    return {
+      orderId: String(o.orderId ?? ''),
+      symbol: leg?.instrument?.symbol ?? '',
+      instruction: leg?.instruction ?? '',
+      orderType: o.orderType ?? '',
+      status: (o.status as OrderStatus) ?? 'NEW',
+      quantity: o.quantity ?? 0,
+      filledQuantity: o.filledQuantity ?? 0,
+      price: o.price ?? null,
+      enteredTime: o.enteredTime ?? '',
+      closeTime: o.closeTime ?? null,
+    };
+  });
 };
 
 // ---------- Market Data ----------

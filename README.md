@@ -6,9 +6,16 @@ A live financial trading dashboard / "operating system" for managing brokerage a
 
 - **Schwab OAuth2 authentication** with proactive token refresh
 - **Account summary**: balance, buying power, cash available
-- **Positions**: real-time holdings with day change and total P&L
+- **Positions summary**: market value, day change, top mover at a glance
+- **Positions table**: full holdings with day change and total P&L
 - **Watchlist**: live quotes for tracked symbols with bid/ask/volume detail
-- **Dark cockpit-inspired UI** with persistent navigation
+- **Symbol detail page**: full quote + inline SVG price-history sparkline
+- **Orders**: 30-day order history with status, side, and fill detail
+- **Mock mode**: runs end-to-end without real Schwab credentials so the UI
+  is immediately explorable in local development
+- **Streaming UI**: each dashboard card renders its static shell instantly
+  and streams data behind a Suspense fallback
+- **Dark cockpit-inspired UI** with persistent navigation and per-page refresh
 - **Secure session handling**: tokens stored in httpOnly cookies, never exposed to the client
 
 ## Tech Stack
@@ -34,15 +41,20 @@ A live financial trading dashboard / "operating system" for managing brokerage a
 
 ```bash
 npm install
-cp .env.example .env.local
-# add your Schwab credentials to .env.local:
-#   SCHWAB_CLIENT_ID=your_client_id
-#   SCHWAB_CLIENT_SECRET=your_client_secret
-#   NEXT_PUBLIC_SCHWAB_REDIRECT_URI=http://localhost:3000/auth/callback
 npm run dev
 ```
 
 Open <http://localhost:3000> and click "Connect Schwab Account".
+
+**No credentials? No problem.** With no `.env.local` (or with `SCHWAB_CLIENT_ID=mock`), the app boots in **mock mode**: the OAuth round-trip is skipped and the dashboard is populated with realistic fixtures so you can explore the UI immediately. An amber banner reminds you that you're in mock mode.
+
+To switch to live Schwab data, copy `.env.example` to `.env.local` and fill in:
+
+```bash
+SCHWAB_CLIENT_ID=your_client_id
+SCHWAB_CLIENT_SECRET=your_client_secret
+NEXT_PUBLIC_SCHWAB_REDIRECT_URI=http://localhost:3000/auth/callback
+```
 
 ### Deployment to Vercel
 
@@ -59,26 +71,35 @@ Open <http://localhost:3000> and click "Connect Schwab Account".
 
 ```
 app/
-├── page.tsx                       Root redirect (auth → dashboard or login)
-├── layout.tsx                     Global layout / metadata
-├── login/page.tsx                 Login page with Schwab connect button
-├── auth/callback/route.ts         OAuth callback (code → tokens)
-├── logout/route.ts                Clears session cookies
+├── page.tsx                            Root redirect (auth → dashboard or login)
+├── layout.tsx                          Global layout / metadata
+├── login/page.tsx                      Login page with Schwab connect button
+├── auth/callback/route.ts              OAuth callback (code → tokens)
+├── logout/route.ts                     Clears session cookies
 ├── dashboard/
-│   ├── layout.tsx                 Shared dashboard chrome + auth gate
-│   ├── nav-link.tsx               Client navigation link
-│   ├── page.tsx                   Account summary
-│   ├── positions/page.tsx         Positions table with P&L
-│   └── quotes/page.tsx            Watchlist quotes
+│   ├── layout.tsx                      Shared chrome + auth gate + mock banner
+│   ├── nav-link.tsx                    Client nav link with active state
+│   ├── refresh-button.tsx              router.refresh() with spinner
+│   ├── loading.tsx                     Per-route skeleton
+│   ├── page.tsx                        Account + positions summary
+│   ├── positions/page.tsx              Positions table with P&L
+│   ├── orders/page.tsx                 30-day order history
+│   └── quotes/
+│       ├── page.tsx                    Watchlist grid + add/remove forms
+│       └── [symbol]/
+│           ├── page.tsx                Symbol detail (quote + sparkline)
+│           └── sparkline.tsx           Inline SVG price-history chart
 └── actions/
-    ├── account.ts                 fetchAccountData, fetchPositions
-    ├── quotes.ts                  fetchQuotes(symbols)
-    └── watchlist.ts               getWatchlist, addToWatchlist, removeFromWatchlist
+    ├── account.ts                      fetchAccountData, fetchPositions
+    ├── orders.ts                       fetchOrders
+    ├── quotes.ts                       fetchQuotes, fetchPriceHistory
+    └── watchlist.ts                    getWatchlist, add/remove (cookie-backed)
 
 lib/
-├── schwab-auth.ts                 Schwab API client (OAuth, accounts, positions, quotes)
-├── schwab-session.ts              Token cookie management + auto-refresh
-└── format.ts                      Number / currency formatting helpers
+├── schwab-auth.ts                      Schwab API client (OAuth, accounts, positions, quotes, history, orders)
+├── schwab-session.ts                   Token cookie management + auto-refresh
+├── schwab-mock.ts                      Fixtures for mock mode (no creds required)
+└── format.ts                           Number / currency formatting helpers
 ```
 
 ## How It Works
@@ -95,10 +116,13 @@ lib/
 - [x] Token refresh (Phase 2)
 - [x] Positions with P&L (Phase 2)
 - [x] Watchlist + live quotes (Phase 2)
+- [x] Mock mode (Phase 2.5)
+- [x] Suspense streaming + per-page refresh (Phase 2.5)
+- [x] Symbol detail with price-history sparkline (Phase 2.5)
+- [x] Order history view (Phase 2.5)
 - [ ] Live price streaming (WebSocket)
-- [ ] Charting / candlesticks
+- [ ] Full candlestick charting
 - [ ] Order placement UI
-- [ ] Trade history / execution panel
 - [ ] Multi-account support
 - [ ] Database-backed sessions (replace cookie-only storage)
 
