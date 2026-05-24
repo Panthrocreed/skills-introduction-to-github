@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { fetchPositions } from '@/app/actions/account';
 import { money, signedMoney, percent, changeColor } from '@/lib/format';
 import { RefreshButton } from '../refresh-button';
@@ -72,12 +73,19 @@ async function PositionsTable() {
             {positions.map((p) => (
               <tr key={p.symbol} className="hover:bg-slate-700/30 transition-colors">
                 <td className="px-4 py-3">
-                  <div className="font-semibold text-white">{p.symbol}</div>
-                  {p.description && (
-                    <div className="text-xs text-slate-400 truncate max-w-[200px]">
-                      {p.description}
+                  <Link
+                    href={`/dashboard/quotes/${encodeURIComponent(p.symbol)}`}
+                    className="group"
+                  >
+                    <div className="font-semibold text-white group-hover:text-blue-400 transition-colors">
+                      {p.symbol}
                     </div>
-                  )}
+                    {p.description && (
+                      <div className="text-xs text-slate-400 truncate max-w-[200px]">
+                        {p.description}
+                      </div>
+                    )}
+                  </Link>
                 </td>
                 <td className="px-4 py-3 text-slate-200">{p.quantity}</td>
                 <td className="px-4 py-3 text-slate-200 text-right">
