@@ -26,6 +26,72 @@ const SCHWAB_OAUTH_BASE = 'https://api.schwabapi.com/v1/oauth';
 const SCHWAB_TRADER_BASE = 'https://api.schwabapi.com/trader/v1';
 const SCHWAB_MARKETDATA_BASE = 'https://api.schwabapi.com/marketdata/v1';
 
+// ---------- Shared fetch + errors ----------
+
+export class SchwabApiError extends Error {
+  status: number;
+  body: string;
+  url: string;
+  correlId: string;
+
+  constructor(opts: {
+    message: string;
+    status: number;
+    body: string;
+    url: string;
+    correlId: string;
+  }) {
+    super(opts.message);
+    this.name = 'SchwabApiError';
+    this.status = opts.status;
+    this.body = opts.body;
+    this.url = opts.url;
+    this.correlId = opts.correlId;
+  }
+}
+
+function randomCorrelId(): string {
+  // RFC 4122-ish; cryptographic uniqueness not required, just traceability
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+async function schwabFetch(
+  url: string,
+  init: RequestInit & { label: string }
+): Promise<Response> {
+  const correlId = randomCorrelId();
+  const headers = new Headers(init.headers);
+  headers.set('Schwab-Client-CorrelId', correlId);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+
+  const response = await fetch(url, {
+    ...init,
+    headers,
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new SchwabApiError({
+      message: `${init.label} failed (${response.status} ${response.statusText})`,
+      status: response.status,
+      body,
+      url,
+      correlId,
+    });
+  }
+
+  return response;
+}
+
+const authHeaders = (accessToken: string): Record<string, string> => ({
+  Authorization: `Bearer ${accessToken}`,
+});
+
 // ---------- OAuth ----------
 
 export interface SchwabTokenResponse {
@@ -83,7 +149,7 @@ export const exchangeCodeForToken = async (
     throw new Error('Missing NEXT_PUBLIC_SCHWAB_REDIRECT_URI');
   }
 
-  const response = await fetch(`${SCHWAB_OAUTH_BASE}/token`, {
+  const response = await schwabFetch(`${SCHWAB_OAUTH_BASE}/token`, {
     method: 'POST',
     headers: {
       Authorization: basicAuthHeader(),
@@ -94,12 +160,8 @@ export const exchangeCodeForToken = async (
       code,
       redirect_uri: redirectUri,
     }).toString(),
+    label: 'exchangeCodeForToken',
   });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`Schwab token exchange failed (${response.status}): ${text}`);
-  }
 
   return response.json();
 };
@@ -109,7 +171,7 @@ export const refreshAccessToken = async (
 ): Promise<SchwabTokenResponse> => {
   if (isMockMode()) return mockTokenResponse();
 
-  const response = await fetch(`${SCHWAB_OAUTH_BASE}/token`, {
+  const response = await schwabFetch(`${SCHWAB_OAUTH_BASE}/token`, {
     method: 'POST',
     headers: {
       Authorization: basicAuthHeader(),
@@ -119,12 +181,8 @@ export const refreshAccessToken = async (
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     }).toString(),
+    label: 'refreshAccessToken',
   });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`Schwab token refresh failed (${response.status}): ${text}`);
-  }
 
   return response.json();
 };
@@ -171,23 +229,20 @@ interface RawAccountResponse {
   };
 }
 
-const authHeaders = (accessToken: string): HeadersInit => ({
-  Authorization: `Bearer ${accessToken}`,
-  Accept: 'application/json',
-});
-
 export const getAccountNumbers = async (
   accessToken: string
 ): Promise<RawAccountNumberPair[]> => {
-  const response = await fetch(`${SCHWAB_TRADER_BASE}/accounts/accountNumbers`, {
-    headers: authHeaders(accessToken),
-    cache: 'no-store',
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch account numbers: ${response.statusText}`);
+  if (isMockMode()) {
+    return mockAccounts().map((a) => ({
+      accountNumber: a.accountNumber,
+      hashValue: a.accountHash,
+    }));
   }
 
+  const response = await schwabFetch(`${SCHWAB_TRADER_BASE}/accounts/accountNumbers`, {
+    headers: authHeaders(accessToken),
+    label: 'getAccountNumbers',
+  });
   return response.json();
 };
 
@@ -196,13 +251,10 @@ export const getAccounts = async (accessToken: string): Promise<SchwabAccount[]>
 
   const [numbers, accountsRaw] = await Promise.all([
     getAccountNumbers(accessToken),
-    fetch(`${SCHWAB_TRADER_BASE}/accounts`, {
+    schwabFetch(`${SCHWAB_TRADER_BASE}/accounts`, {
       headers: authHeaders(accessToken),
-      cache: 'no-store',
-    }).then(async (r): Promise<RawAccountResponse[]> => {
-      if (!r.ok) throw new Error(`Failed to fetch accounts: ${r.statusText}`);
-      return r.json();
-    }),
+      label: 'getAccounts',
+    }).then((r) => r.json() as Promise<RawAccountResponse[]>),
   ]);
 
   const hashByNumber = new Map(numbers.map((n) => [n.accountNumber, n.hashValue]));
@@ -223,14 +275,10 @@ export const getAccountBalance = async (
 ): Promise<SchwabAccountBalance> => {
   if (isMockMode()) return mockAccountBalance();
 
-  const response = await fetch(`${SCHWAB_TRADER_BASE}/accounts/${accountHash}`, {
+  const response = await schwabFetch(`${SCHWAB_TRADER_BASE}/accounts/${accountHash}`, {
     headers: authHeaders(accessToken),
-    cache: 'no-store',
+    label: 'getAccountBalance',
   });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch account balance: ${response.statusText}`);
-  }
 
   const data: RawAccountResponse = await response.json();
   const securities = data.securitiesAccount ?? {};
@@ -286,17 +334,13 @@ export const getPositions = async (
 ): Promise<SchwabPosition[]> => {
   if (isMockMode()) return mockPositions();
 
-  const response = await fetch(
+  const response = await schwabFetch(
     `${SCHWAB_TRADER_BASE}/accounts/${accountHash}?fields=positions`,
     {
       headers: authHeaders(accessToken),
-      cache: 'no-store',
+      label: 'getPositions',
     }
   );
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch positions: ${response.statusText}`);
-  }
 
   const data: RawAccountResponse = await response.json();
   const raw = data.securitiesAccount?.positions ?? [];
@@ -392,14 +436,10 @@ export const getOrders = async (
     params.toString() ? '?' + params.toString() : ''
   }`;
 
-  const response = await fetch(url, {
+  const response = await schwabFetch(url, {
     headers: authHeaders(accessToken),
-    cache: 'no-store',
+    label: 'getOrders',
   });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch orders: ${response.statusText}`);
-  }
 
   const data: RawOrder[] = await response.json();
   return data.map((o) => {
@@ -494,17 +534,13 @@ export const getPriceHistory = async (
     frequency: String(params.frequency ?? 5),
   });
 
-  const response = await fetch(
+  const response = await schwabFetch(
     `${SCHWAB_MARKETDATA_BASE}/pricehistory?${query.toString()}`,
     {
       headers: authHeaders(accessToken),
-      cache: 'no-store',
+      label: 'getPriceHistory',
     }
   );
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch price history: ${response.statusText}`);
-  }
 
   const data: RawPriceHistoryResponse = await response.json();
   return data.candles ?? [];
@@ -522,17 +558,13 @@ export const getQuotes = async (
     fields: 'quote,reference',
   });
 
-  const response = await fetch(
+  const response = await schwabFetch(
     `${SCHWAB_MARKETDATA_BASE}/quotes?${params.toString()}`,
     {
       headers: authHeaders(accessToken),
-      cache: 'no-store',
+      label: 'getQuotes',
     }
   );
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch quotes: ${response.statusText}`);
-  }
 
   const data: Record<string, RawQuoteEntry> = await response.json();
 

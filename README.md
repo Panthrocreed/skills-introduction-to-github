@@ -126,6 +126,12 @@ lib/
 - [ ] Multi-account support
 - [ ] Database-backed sessions (replace cookie-only storage)
 
+## Diagnostics
+
+Visit [`/dev/api-check`](http://localhost:3000/dev/api-check) after logging in to ping every Schwab endpoint in one place. Each row shows the HTTP status, response time, Schwab correlation ID, and full response body — perfect for confirming a live setup or debugging a 4xx without digging through server logs.
+
+All API errors thrown by `lib/schwab-auth.ts` are `SchwabApiError` instances carrying `status`, `body`, `url`, and `correlId`. Every outbound request also sets a `Schwab-Client-CorrelId` header so failed calls can be traced through Schwab support.
+
 ## Notes
 
 - **Secrets**: never commit `.env.local`. Use Vercel project secrets for production.
